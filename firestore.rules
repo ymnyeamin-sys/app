@@ -1,0 +1,185 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidTimestamp(val) {
+      return val is timestamp && val <= request.time;
+    }
+
+    function isValidUserProfile(data) {
+      return data.userId is string && data.userId.size() > 0 && data.userId.size() <= 128 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.email is string && data.email.size() <= 150 &&
+             (!('activeMessId' in data) || data.activeMessId == null || (data.activeMessId is string && data.activeMessId.size() <= 128)) &&
+             isValidTimestamp(data.createdAt) &&
+             (!('updatedAt' in data) || data.updatedAt == null || isValidTimestamp(data.updatedAt));
+    }
+
+    function isValidJoinCode(data) {
+      return data.code is string && data.code.size() >= 4 && data.code.size() <= 20 &&
+             data.messId is string && data.messId.size() > 0 && data.messId.size() <= 128 &&
+             data.messName is string && data.messName.size() > 0 && data.messName.size() <= 100 &&
+             data.creatorId is string && data.creatorId.size() > 0 && data.creatorId.size() <= 128 &&
+             isValidTimestamp(data.createdAt);
+    }
+
+    function isValidMess(data) {
+      return data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.joinCode is string && data.joinCode.size() >= 4 && data.joinCode.size() <= 20 &&
+             data.managerId is string && data.managerId.size() > 0 && data.managerId.size() <= 128 &&
+             data.memberUids is list && data.memberUids.size() > 0 && data.memberUids.size() <= 100 &&
+             data.memberNames is list && data.memberNames.size() > 0 && data.memberNames.size() <= 100 &&
+             (!('activeMonth' in data) || data.activeMonth == null || (data.activeMonth is string && data.activeMonth.size() <= 20)) &&
+             isValidTimestamp(data.createdAt) &&
+             (!('updatedAt' in data) || data.updatedAt == null || isValidTimestamp(data.updatedAt));
+    }
+
+    function isValidMeal(data) {
+      return data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+             data.messId is string && data.messId.size() > 0 && data.messId.size() <= 128 &&
+             data.userId is string && data.userId.size() > 0 && data.userId.size() <= 128 &&
+             data.userName is string && data.userName.size() > 0 && data.userName.size() <= 100 &&
+             data.memberUids is list && data.memberUids.size() > 0 && data.memberUids.size() <= 100 &&
+             data.date is string && data.date.size() == 10 &&
+             data.month is string && data.month.size() == 7 &&
+             (data.breakfast is int || data.breakfast is float) && data.breakfast >= 0 && data.breakfast <= 10 &&
+             (data.lunch is int || data.lunch is float) && data.lunch >= 0 && data.lunch <= 10 &&
+             (data.dinner is int || data.dinner is float) && data.dinner >= 0 && data.dinner <= 10 &&
+             (data.totalMeals is int || data.totalMeals is float) && data.totalMeals >= 0 && data.totalMeals <= 30 &&
+             data.recordedBy is string && data.recordedBy.size() > 0 && data.recordedBy.size() <= 128 &&
+             (!('recordedByName' in data) || data.recordedByName == null || (data.recordedByName is string && data.recordedByName.size() <= 100)) &&
+             isValidTimestamp(data.createdAt) &&
+             (!('updatedAt' in data) || data.updatedAt == null || isValidTimestamp(data.updatedAt));
+    }
+
+    function isValidDeposit(data) {
+      return data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+             data.messId is string && data.messId.size() > 0 && data.messId.size() <= 128 &&
+             data.userId is string && data.userId.size() > 0 && data.userId.size() <= 128 &&
+             data.userName is string && data.userName.size() > 0 && data.userName.size() <= 100 &&
+             data.memberUids is list && data.memberUids.size() > 0 && data.memberUids.size() <= 100 &&
+             (data.amount is int || data.amount is float) && data.amount >= 0 && data.amount <= 1000000 &&
+             data.date is string && data.date.size() == 10 &&
+             data.month is string && data.month.size() == 7 &&
+             (!('note' in data) || data.note == null || (data.note is string && data.note.size() <= 200)) &&
+             data.recordedBy is string && data.recordedBy.size() > 0 && data.recordedBy.size() <= 128 &&
+             isValidTimestamp(data.createdAt) &&
+             (!('updatedAt' in data) || data.updatedAt == null || isValidTimestamp(data.updatedAt));
+    }
+
+    function isValidBazarExpense(data) {
+      return data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+             data.messId is string && data.messId.size() > 0 && data.messId.size() <= 128 &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+             (data.amount is int || data.amount is float) && data.amount >= 0 && data.amount <= 1000000 &&
+             data.date is string && data.date.size() == 10 &&
+             data.month is string && data.month.size() == 7 &&
+             data.shopperId is string && data.shopperId.size() > 0 && data.shopperId.size() <= 128 &&
+             data.shopperName is string && data.shopperName.size() > 0 && data.shopperName.size() <= 100 &&
+             data.memberUids is list && data.memberUids.size() > 0 && data.memberUids.size() <= 100 &&
+             data.recordedBy is string && data.recordedBy.size() > 0 && data.recordedBy.size() <= 128 &&
+             isValidTimestamp(data.createdAt) &&
+             (!('updatedAt' in data) || data.updatedAt == null || isValidTimestamp(data.updatedAt));
+    }
+
+    function isValidOtherExpense(data) {
+      return data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+             data.messId is string && data.messId.size() > 0 && data.messId.size() <= 128 &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+             (data.amount is int || data.amount is float) && data.amount >= 0 && data.amount <= 1000000 &&
+             data.date is string && data.date.size() == 10 &&
+             data.month is string && data.month.size() == 7 &&
+             data.memberUids is list && data.memberUids.size() > 0 && data.memberUids.size() <= 100 &&
+             data.recordedBy is string && data.recordedBy.size() > 0 && data.recordedBy.size() <= 128 &&
+             isValidTimestamp(data.createdAt) &&
+             (!('updatedAt' in data) || data.updatedAt == null || isValidTimestamp(data.updatedAt));
+    }
+
+    // 1. User Profiles
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId);
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(userId) && request.auth.uid == userId && incoming().userId == request.auth.uid && isValidUserProfile(incoming());
+      allow update: if isSignedIn() && isValidId(userId) && request.auth.uid == userId && incoming().userId == existing().userId && incoming().createdAt == existing().createdAt && isValidUserProfile(incoming());
+      allow delete: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+    }
+
+    // 2. Join Codes
+    match /join_codes/{code} {
+      allow get: if isSignedIn() && isValidId(code);
+      allow list: if false;
+      allow create: if isSignedIn() && isValidId(code) && incoming().code == code && incoming().creatorId == request.auth.uid && isValidJoinCode(incoming());
+      allow update: if isSignedIn() && isValidId(code) && incoming().code == existing().code && incoming().creatorId == existing().creatorId && incoming().createdAt == existing().createdAt && isValidJoinCode(incoming());
+      allow delete: if isSignedIn() && isValidId(code) && existing().creatorId == request.auth.uid;
+    }
+
+    // 3. Messes
+    match /messes/{messId} {
+      allow get: if isSignedIn() && isValidId(messId) && (resource == null || (request.auth.uid in resource.data.memberUids));
+      allow list: if isSignedIn() && (request.auth.uid in resource.data.memberUids);
+      allow create: if isSignedIn() && isValidId(messId) && incoming().id == messId && incoming().managerId == request.auth.uid && (request.auth.uid in incoming().memberUids) && isValidMess(incoming());
+      allow update: if isSignedIn() && isValidId(messId) && incoming().id == existing().id && incoming().createdAt == existing().createdAt && isValidMess(incoming()) && (request.auth.uid in existing().memberUids || (request.auth.uid in incoming().memberUids && incoming().diff(existing()).affectedKeys().hasOnly(['memberUids', 'memberNames', 'updatedAt'])));
+      allow delete: if isSignedIn() && isValidId(messId) && existing().managerId == request.auth.uid;
+
+      // 4. Meals subcollection
+      match /meals/{mealId} {
+        allow get: if isSignedIn() && isValidId(messId) && isValidId(mealId) && (resource == null || (request.auth.uid in resource.data.memberUids));
+        allow list: if isSignedIn() && isValidId(messId) && (request.auth.uid in resource.data.memberUids);
+        allow create: if isSignedIn() && isValidId(messId) && isValidId(mealId) && incoming().messId == messId && incoming().recordedBy == request.auth.uid && (request.auth.uid in incoming().memberUids) && isValidMeal(incoming());
+        allow update: if isSignedIn() && isValidId(messId) && isValidId(mealId) && incoming().messId == existing().messId && incoming().createdAt == existing().createdAt && (request.auth.uid in existing().memberUids) && (request.auth.uid in incoming().memberUids) && isValidMeal(incoming());
+        allow delete: if isSignedIn() && isValidId(messId) && isValidId(mealId) && (request.auth.uid in existing().memberUids);
+      }
+
+      // 5. Deposits subcollection
+      match /deposits/{depositId} {
+        allow get: if isSignedIn() && isValidId(messId) && isValidId(depositId) && (resource == null || (request.auth.uid in resource.data.memberUids));
+        allow list: if isSignedIn() && isValidId(messId) && (request.auth.uid in resource.data.memberUids);
+        allow create: if isSignedIn() && isValidId(messId) && isValidId(depositId) && incoming().messId == messId && incoming().recordedBy == request.auth.uid && (request.auth.uid in incoming().memberUids) && isValidDeposit(incoming());
+        allow update: if isSignedIn() && isValidId(messId) && isValidId(depositId) && incoming().messId == existing().messId && incoming().createdAt == existing().createdAt && (request.auth.uid in existing().memberUids) && (request.auth.uid in incoming().memberUids) && isValidDeposit(incoming());
+        allow delete: if isSignedIn() && isValidId(messId) && isValidId(depositId) && (request.auth.uid in existing().memberUids);
+      }
+
+      // 6. Bazar Expenses subcollection
+      match /bazar_expenses/{expenseId} {
+        allow get: if isSignedIn() && isValidId(messId) && isValidId(expenseId) && (resource == null || (request.auth.uid in resource.data.memberUids));
+        allow list: if isSignedIn() && isValidId(messId) && (request.auth.uid in resource.data.memberUids);
+        allow create: if isSignedIn() && isValidId(messId) && isValidId(expenseId) && incoming().messId == messId && incoming().recordedBy == request.auth.uid && (request.auth.uid in incoming().memberUids) && isValidBazarExpense(incoming());
+        allow update: if isSignedIn() && isValidId(messId) && isValidId(expenseId) && incoming().messId == existing().messId && incoming().createdAt == existing().createdAt && (request.auth.uid in existing().memberUids) && (request.auth.uid in incoming().memberUids) && isValidBazarExpense(incoming());
+        allow delete: if isSignedIn() && isValidId(messId) && isValidId(expenseId) && (request.auth.uid in existing().memberUids);
+      }
+
+      // 7. Other Expenses subcollection
+      match /other_expenses/{expenseId} {
+        allow get: if isSignedIn() && isValidId(messId) && isValidId(expenseId) && (resource == null || (request.auth.uid in resource.data.memberUids));
+        allow list: if isSignedIn() && isValidId(messId) && (request.auth.uid in resource.data.memberUids);
+        allow create: if isSignedIn() && isValidId(messId) && isValidId(expenseId) && incoming().messId == messId && incoming().recordedBy == request.auth.uid && (request.auth.uid in incoming().memberUids) && isValidOtherExpense(incoming());
+        allow update: if isSignedIn() && isValidId(messId) && isValidId(expenseId) && incoming().messId == existing().messId && incoming().createdAt == existing().createdAt && (request.auth.uid in existing().memberUids) && (request.auth.uid in incoming().memberUids) && isValidOtherExpense(incoming());
+        allow delete: if isSignedIn() && isValidId(messId) && isValidId(expenseId) && (request.auth.uid in existing().memberUids);
+      }
+    }
+  }
+}

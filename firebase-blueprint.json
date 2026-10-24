@@ -1,0 +1,159 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile with display name and current active mess",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "activeMessId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "name", "email", "createdAt"]
+    },
+    "JoinCode": {
+      "title": "JoinCode",
+      "description": "Short code used by mess members to join a mess group",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string" },
+        "messId": { "type": "string" },
+        "messName": { "type": "string" },
+        "creatorId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["code", "messId", "messName", "creatorId", "createdAt"]
+    },
+    "Mess": {
+      "title": "Mess",
+      "description": "Mess group containing members, manager, and configuration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "joinCode": { "type": "string" },
+        "managerId": { "type": "string" },
+        "memberUids": { "type": "array" },
+        "memberNames": { "type": "array" },
+        "activeMonth": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "joinCode", "managerId", "memberUids", "memberNames", "createdAt"]
+    },
+    "Meal": {
+      "title": "Meal",
+      "description": "Daily meal record for a member in a mess",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "messId": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "memberUids": { "type": "array" },
+        "date": { "type": "string" },
+        "month": { "type": "string" },
+        "breakfast": { "type": "number" },
+        "lunch": { "type": "number" },
+        "dinner": { "type": "number" },
+        "totalMeals": { "type": "number" },
+        "recordedBy": { "type": "string" },
+        "recordedByName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "messId", "userId", "userName", "memberUids", "date", "month", "breakfast", "lunch", "dinner", "totalMeals", "recordedBy", "createdAt"]
+    },
+    "Deposit": {
+      "title": "Deposit",
+      "description": "Money deposited by a member to the mess manager",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "messId": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "memberUids": { "type": "array" },
+        "amount": { "type": "number" },
+        "date": { "type": "string" },
+        "month": { "type": "string" },
+        "note": { "type": "string" },
+        "recordedBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "messId", "userId", "userName", "memberUids", "amount", "date", "month", "recordedBy", "createdAt"]
+    },
+    "BazarExpense": {
+      "title": "BazarExpense",
+      "description": "Mess grocery and daily market expenses",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "messId": { "type": "string" },
+        "title": { "type": "string" },
+        "amount": { "type": "number" },
+        "date": { "type": "string" },
+        "month": { "type": "string" },
+        "shopperId": { "type": "string" },
+        "shopperName": { "type": "string" },
+        "memberUids": { "type": "array" },
+        "recordedBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "messId", "title", "amount", "date", "month", "shopperId", "shopperName", "memberUids", "recordedBy", "createdAt"]
+    },
+    "OtherExpense": {
+      "title": "OtherExpense",
+      "description": "Shared mess expenses such as cook bill, gas, wifi, or utilities",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "messId": { "type": "string" },
+        "title": { "type": "string" },
+        "amount": { "type": "number" },
+        "date": { "type": "string" },
+        "month": { "type": "string" },
+        "memberUids": { "type": "array" },
+        "recordedBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "messId", "title", "amount", "date", "month", "memberUids", "recordedBy", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User profile with personal active mess pointer"
+    },
+    "/join_codes/{code}": {
+      "schema": { "$ref": "#/entities/JoinCode" },
+      "description": "Lookup document for mess join code"
+    },
+    "/messes/{messId}": {
+      "schema": { "$ref": "#/entities/Mess" },
+      "description": "Root mess document with members list and manager ID"
+    },
+    "/messes/{messId}/meals/{mealId}": {
+      "schema": { "$ref": "#/entities/Meal" },
+      "description": "Member daily meal counts"
+    },
+    "/messes/{messId}/deposits/{depositId}": {
+      "schema": { "$ref": "#/entities/Deposit" },
+      "description": "Member deposits to mess fund"
+    },
+    "/messes/{messId}/bazar_expenses/{expenseId}": {
+      "schema": { "$ref": "#/entities/BazarExpense" },
+      "description": "Mess grocery / bazar purchase receipts"
+    },
+    "/messes/{messId}/other_expenses/{expenseId}": {
+      "schema": { "$ref": "#/entities/OtherExpense" },
+      "description": "Mess shared utility and service expenses"
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Mess Meal",
+  "description": "Smart mess meal and expense management app for roommates to track daily meals, deposits, bazar costs, meal rates, and month-end accounts.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
