@@ -8,6 +8,7 @@ import com.example.data.model.JoinCode
 import com.example.data.model.Meal
 import com.example.data.model.Mess
 import com.example.data.model.OtherExpense
+import com.example.data.model.Room
 import com.example.data.model.UserProfile
 import com.example.data.util.OperationType
 import com.example.data.util.handleFirestoreError
@@ -17,10 +18,9 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.snapshots
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 import java.util.UUID
@@ -144,13 +144,11 @@ class MessRepository(private val db: FirebaseFirestore) {
         val messRef = db.collection("messes").document(messId)
 
         return try {
-            // Check if join code is taken
             val codeSnap = codeRef.get().await()
             if (codeSnap.exists()) {
                 return Result.failure(IllegalArgumentException("Join code '$code' is already in use. Please try another."))
             }
 
-            // Register join code
             val codePayload = mapOf(
                 "code" to code,
                 "messId" to messId,
@@ -160,13 +158,13 @@ class MessRepository(private val db: FirebaseFirestore) {
             )
             codeRef.set(codePayload).await()
 
-            // Create mess
             val currentMonth = java.text.SimpleDateFormat("yyyy-MM", java.util.Locale.US).format(java.util.Date())
             val messPayload = mapOf(
                 "id" to messId,
                 "name" to name,
                 "joinCode" to code,
                 "managerId" to uid,
+                "adminUids" to listOf(uid),
                 "memberUids" to listOf(uid),
                 "memberNames" to listOf(userName),
                 "activeMonth" to currentMonth,
@@ -175,7 +173,6 @@ class MessRepository(private val db: FirebaseFirestore) {
             )
             messRef.set(messPayload).await()
 
-            // Update user's active mess
             updateActiveMess(messId)
 
             Result.success(
@@ -184,6 +181,7 @@ class MessRepository(private val db: FirebaseFirestore) {
                     name = name,
                     joinCode = code,
                     managerId = uid,
+                    adminUids = listOf(uid),
                     memberUids = listOf(uid),
                     memberNames = listOf(userName),
                     activeMonth = currentMonth
@@ -237,6 +235,233 @@ class MessRepository(private val db: FirebaseFirestore) {
             throw e
         } catch (e: Exception) {
             handleFirestoreError(e, OperationType.UPDATE, codeRef.path)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun toggleAdminRole(messId: String, targetUid: String): Result<Unit> {
+        val messRef = db.collection("messes").document(messId)
+        return try {
+            val snap = messRef.get().await()
+            val mess = snap.toObject(Mess::class.java) ?: return Result.failure(IllegalStateException("Mess not found"))
+            val currentAdmins = mess.adminUids.toMutableList()
+            if (currentAdmins.contains(targetUid)) {
+                if (targetUid != mess.managerId) {
+                    currentAdmins.remove(targetUid)
+                }
+            } else {
+                currentAdmins.add(targetUid)
+            }
+            messRef.update(
+                mapOf(
+                    "adminUids" to currentAdmins,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, messRef.path)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun removeMemberFromMess(messId: String, targetUid: String): Result<Unit> {
+        val messRef = db.collection("messes").document(messId)
+        return try {
+            val snap = messRef.get().await()
+            val mess = snap.toObject(Mess::class.java) ?: return Result.failure(IllegalStateException("Mess not found"))
+            val idx = mess.memberUids.indexOf(targetUid)
+            if (idx >= 0) {
+                val updatedUids = mess.memberUids.toMutableList().apply { removeAt(idx) }
+                val updatedNames = mess.memberNames.toMutableList().apply { removeAt(idx) }
+                val updatedAdmins = mess.adminUids.filter { it != targetUid }
+                messRef.update(
+                    mapOf(
+                        "memberUids" to updatedUids,
+                        "memberNames" to updatedNames,
+                        "adminUids" to updatedAdmins,
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    )
+                ).await()
+
+                // Remove member from any room they occupy
+                val roomsSnap = db.collection("messes").document(messId).collection("rooms").get().await()
+                for (doc in roomsSnap.documents) {
+                    val room = doc.toObject(Room::class.java) ?: continue
+                    if (room.assignedMemberUids.contains(targetUid)) {
+                        val mIdx = room.assignedMemberUids.indexOf(targetUid)
+                        val rUids = room.assignedMemberUids.toMutableList().apply { removeAt(mIdx) }
+                        val rNames = room.assignedMemberNames.toMutableList().apply { removeAt(mIdx) }
+                        doc.reference.update(
+                            mapOf(
+                                "assignedMemberUids" to rUids,
+                                "assignedMemberNames" to rNames,
+                                "updatedAt" to FieldValue.serverTimestamp()
+                            )
+                        ).await()
+                    }
+                }
+            }
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, messRef.path)
+            Result.failure(e)
+        }
+    }
+
+    // --- Rooms (Admin room management & member room occupation) ---
+    fun observeRooms(messId: String): Flow<List<Room>> {
+        val uid = requireUserId()
+        val query = db.collection("messes").document(messId).collection("rooms")
+            .whereArrayContains("memberUids", uid)
+        return query.snapshots()
+            .map { snap ->
+                snap.toObjects(Room::class.java).sortedBy { it.roomNumber }
+            }
+            .catch { error ->
+                if (error is Exception) {
+                    handleFirestoreError(error, OperationType.LIST, "messes/$messId/rooms")
+                }
+                throw error
+            }
+    }
+
+    suspend fun createOrUpdateRoom(
+        messId: String,
+        memberUids: List<String>,
+        roomNumber: String,
+        type: String, // Single, Double, Triple, Shared
+        capacity: Int,
+        rent: Double,
+        existingRoomId: String? = null
+    ): Result<Unit> {
+        val roomId = existingRoomId?.takeIf { it.isNotBlank() }
+            ?: "room_${UUID.randomUUID().toString().replace("-", "").take(16)}"
+        val docRef = db.collection("messes").document(messId).collection("rooms").document(roomId)
+
+        return try {
+            val payload = mutableMapOf<String, Any>(
+                "id" to roomId,
+                "messId" to messId,
+                "roomNumber" to roomNumber.trim(),
+                "type" to type,
+                "capacity" to capacity,
+                "rent" to rent,
+                "memberUids" to memberUids,
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+            if (existingRoomId.isNullOrBlank()) {
+                payload["assignedMemberUids"] = emptyList<String>()
+                payload["assignedMemberNames"] = emptyList<String>()
+                payload["createdAt"] = FieldValue.serverTimestamp()
+            }
+            docRef.set(payload, com.google.firebase.firestore.SetOptions.merge()).await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.WRITE, docRef.path)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteRoom(messId: String, roomId: String): Result<Unit> {
+        val docRef = db.collection("messes").document(messId).collection("rooms").document(roomId)
+        return try {
+            docRef.delete().await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.DELETE, docRef.path)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun assignMemberToRoom(
+        messId: String,
+        targetRoomId: String,
+        memberUid: String,
+        memberName: String
+    ): Result<Unit> {
+        return try {
+            // First remove member from any other room in the mess
+            val roomsQuery = db.collection("messes").document(messId).collection("rooms").get().await()
+            for (doc in roomsQuery.documents) {
+                val room = doc.toObject(Room::class.java) ?: continue
+                if (room.assignedMemberUids.contains(memberUid) && room.id != targetRoomId) {
+                    val idx = room.assignedMemberUids.indexOf(memberUid)
+                    val updatedUids = room.assignedMemberUids.toMutableList().apply { removeAt(idx) }
+                    val updatedNames = room.assignedMemberNames.toMutableList().apply { removeAt(idx) }
+                    doc.reference.update(
+                        mapOf(
+                            "assignedMemberUids" to updatedUids,
+                            "assignedMemberNames" to updatedNames,
+                            "updatedAt" to FieldValue.serverTimestamp()
+                        )
+                    ).await()
+                }
+            }
+
+            // Add member to target room
+            val targetRef = db.collection("messes").document(messId).collection("rooms").document(targetRoomId)
+            val targetSnap = targetRef.get().await()
+            val targetRoom = targetSnap.toObject(Room::class.java)
+                ?: return Result.failure(IllegalStateException("Target room not found"))
+
+            if (targetRoom.assignedMemberUids.contains(memberUid)) {
+                return Result.success(Unit) // Already in this room
+            }
+            if (targetRoom.isFull) {
+                return Result.failure(IllegalStateException("এই রুমে কোনো সিট খালি নেই! (Room is full)"))
+            }
+
+            val updatedUids = targetRoom.assignedMemberUids + memberUid
+            val updatedNames = targetRoom.assignedMemberNames + memberName
+            targetRef.update(
+                mapOf(
+                    "assignedMemberUids" to updatedUids,
+                    "assignedMemberNames" to updatedNames,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, "messes/$messId/rooms/$targetRoomId")
+            Result.failure(e)
+        }
+    }
+
+    suspend fun leaveRoom(messId: String, roomId: String, memberUid: String): Result<Unit> {
+        val docRef = db.collection("messes").document(messId).collection("rooms").document(roomId)
+        return try {
+            val snap = docRef.get().await()
+            val room = snap.toObject(Room::class.java)
+                ?: return Result.failure(IllegalStateException("Room not found"))
+            if (room.assignedMemberUids.contains(memberUid)) {
+                val idx = room.assignedMemberUids.indexOf(memberUid)
+                val updatedUids = room.assignedMemberUids.toMutableList().apply { removeAt(idx) }
+                val updatedNames = room.assignedMemberNames.toMutableList().apply { removeAt(idx) }
+                docRef.update(
+                    mapOf(
+                        "assignedMemberUids" to updatedUids,
+                        "assignedMemberNames" to updatedNames,
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    )
+                ).await()
+            }
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, docRef.path)
             Result.failure(e)
         }
     }
@@ -352,7 +577,7 @@ class MessRepository(private val db: FirebaseFirestore) {
     ): Result<Unit> {
         val uid = requireUserId()
         val month = date.take(7)
-        val depositId = "dep_${UUID.randomUUID().toString().replace("-", "").take(12)}"
+        val depositId = "dep_${UUID.randomUUID().toString().replace("-", "").take(16)}"
         val docRef = db.collection("messes").document(messId).collection("deposits").document(depositId)
 
         return try {
@@ -425,7 +650,7 @@ class MessRepository(private val db: FirebaseFirestore) {
     ): Result<Unit> {
         val uid = requireUserId()
         val month = date.take(7)
-        val expenseId = "baz_${UUID.randomUUID().toString().replace("-", "").take(12)}"
+        val expenseId = "baz_${UUID.randomUUID().toString().replace("-", "").take(16)}"
         val docRef = db.collection("messes").document(messId).collection("bazar_expenses").document(expenseId)
 
         return try {
@@ -494,7 +719,7 @@ class MessRepository(private val db: FirebaseFirestore) {
     ): Result<Unit> {
         val uid = requireUserId()
         val month = date.take(7)
-        val expenseId = "oth_${UUID.randomUUID().toString().replace("-", "").take(12)}"
+        val expenseId = "oth_${UUID.randomUUID().toString().replace("-", "").take(16)}"
         val docRef = db.collection("messes").document(messId).collection("other_expenses").document(expenseId)
 
         return try {

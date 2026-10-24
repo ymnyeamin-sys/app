@@ -51,9 +51,24 @@ service cloud.firestore {
              data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
              data.joinCode is string && data.joinCode.size() >= 4 && data.joinCode.size() <= 20 &&
              data.managerId is string && data.managerId.size() > 0 && data.managerId.size() <= 128 &&
+             (!('adminUids' in data) || data.adminUids == null || (data.adminUids is list && data.adminUids.size() <= 20)) &&
              data.memberUids is list && data.memberUids.size() > 0 && data.memberUids.size() <= 100 &&
              data.memberNames is list && data.memberNames.size() > 0 && data.memberNames.size() <= 100 &&
              (!('activeMonth' in data) || data.activeMonth == null || (data.activeMonth is string && data.activeMonth.size() <= 20)) &&
+             isValidTimestamp(data.createdAt) &&
+             (!('updatedAt' in data) || data.updatedAt == null || isValidTimestamp(data.updatedAt));
+    }
+
+    function isValidRoom(data) {
+      return data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+             data.messId is string && data.messId.size() > 0 && data.messId.size() <= 128 &&
+             data.roomNumber is string && data.roomNumber.size() > 0 && data.roomNumber.size() <= 50 &&
+             data.type is string && (data.type == 'Single' || data.type == 'Double' || data.type == 'Triple' || data.type == 'Shared') &&
+             (data.capacity is int || data.capacity is float) && data.capacity >= 1 && data.capacity <= 10 &&
+             (!('rent' in data) || data.rent == null || ((data.rent is int || data.rent is float) && data.rent >= 0 && data.rent <= 100000)) &&
+             data.assignedMemberUids is list && data.assignedMemberUids.size() <= 10 &&
+             data.assignedMemberNames is list && data.assignedMemberNames.size() <= 10 &&
+             data.memberUids is list && data.memberUids.size() > 0 && data.memberUids.size() <= 100 &&
              isValidTimestamp(data.createdAt) &&
              (!('updatedAt' in data) || data.updatedAt == null || isValidTimestamp(data.updatedAt));
     }
@@ -145,7 +160,16 @@ service cloud.firestore {
       allow update: if isSignedIn() && isValidId(messId) && incoming().id == existing().id && incoming().createdAt == existing().createdAt && isValidMess(incoming()) && (request.auth.uid in existing().memberUids || (request.auth.uid in incoming().memberUids && incoming().diff(existing()).affectedKeys().hasOnly(['memberUids', 'memberNames', 'updatedAt'])));
       allow delete: if isSignedIn() && isValidId(messId) && existing().managerId == request.auth.uid;
 
-      // 4. Meals subcollection
+      // 4. Rooms subcollection (Added by Admin, joined by members)
+      match /rooms/{roomId} {
+        allow get: if isSignedIn() && isValidId(messId) && isValidId(roomId) && (resource == null || (request.auth.uid in resource.data.memberUids));
+        allow list: if isSignedIn() && isValidId(messId) && (request.auth.uid in resource.data.memberUids);
+        allow create: if isSignedIn() && isValidId(messId) && isValidId(roomId) && incoming().messId == messId && (request.auth.uid in incoming().memberUids) && isValidRoom(incoming());
+        allow update: if isSignedIn() && isValidId(messId) && isValidId(roomId) && incoming().messId == existing().messId && incoming().createdAt == existing().createdAt && (request.auth.uid in existing().memberUids) && (request.auth.uid in incoming().memberUids) && isValidRoom(incoming());
+        allow delete: if isSignedIn() && isValidId(messId) && isValidId(roomId) && (request.auth.uid in existing().memberUids);
+      }
+
+      // 5. Meals subcollection
       match /meals/{mealId} {
         allow get: if isSignedIn() && isValidId(messId) && isValidId(mealId) && (resource == null || (request.auth.uid in resource.data.memberUids));
         allow list: if isSignedIn() && isValidId(messId) && (request.auth.uid in resource.data.memberUids);
@@ -154,7 +178,7 @@ service cloud.firestore {
         allow delete: if isSignedIn() && isValidId(messId) && isValidId(mealId) && (request.auth.uid in existing().memberUids);
       }
 
-      // 5. Deposits subcollection
+      // 6. Deposits subcollection
       match /deposits/{depositId} {
         allow get: if isSignedIn() && isValidId(messId) && isValidId(depositId) && (resource == null || (request.auth.uid in resource.data.memberUids));
         allow list: if isSignedIn() && isValidId(messId) && (request.auth.uid in resource.data.memberUids);
@@ -163,7 +187,7 @@ service cloud.firestore {
         allow delete: if isSignedIn() && isValidId(messId) && isValidId(depositId) && (request.auth.uid in existing().memberUids);
       }
 
-      // 6. Bazar Expenses subcollection
+      // 7. Bazar Expenses subcollection
       match /bazar_expenses/{expenseId} {
         allow get: if isSignedIn() && isValidId(messId) && isValidId(expenseId) && (resource == null || (request.auth.uid in resource.data.memberUids));
         allow list: if isSignedIn() && isValidId(messId) && (request.auth.uid in resource.data.memberUids);
@@ -172,7 +196,7 @@ service cloud.firestore {
         allow delete: if isSignedIn() && isValidId(messId) && isValidId(expenseId) && (request.auth.uid in existing().memberUids);
       }
 
-      // 7. Other Expenses subcollection
+      // 8. Other Expenses subcollection
       match /other_expenses/{expenseId} {
         allow get: if isSignedIn() && isValidId(messId) && isValidId(expenseId) && (resource == null || (request.auth.uid in resource.data.memberUids));
         allow list: if isSignedIn() && isValidId(messId) && (request.auth.uid in resource.data.memberUids);

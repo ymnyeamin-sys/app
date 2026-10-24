@@ -36,6 +36,7 @@
         "name": { "type": "string" },
         "joinCode": { "type": "string" },
         "managerId": { "type": "string" },
+        "adminUids": { "type": "array" },
         "memberUids": { "type": "array" },
         "memberNames": { "type": "array" },
         "activeMonth": { "type": "string" },
@@ -43,6 +44,25 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "name", "joinCode", "managerId", "memberUids", "memberNames", "createdAt"]
+    },
+    "Room": {
+      "title": "Room",
+      "description": "Mess room managed by admin with type (single/double) and assigned members",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "messId": { "type": "string" },
+        "roomNumber": { "type": "string" },
+        "type": { "type": "string" },
+        "capacity": { "type": "number" },
+        "rent": { "type": "number" },
+        "assignedMemberUids": { "type": "array" },
+        "assignedMemberNames": { "type": "array" },
+        "memberUids": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "messId", "roomNumber", "type", "capacity", "assignedMemberUids", "assignedMemberNames", "memberUids", "createdAt"]
     },
     "Meal": {
       "title": "Meal",
@@ -138,6 +158,10 @@
     "/messes/{messId}": {
       "schema": { "$ref": "#/entities/Mess" },
       "description": "Root mess document with members list and manager ID"
+    },
+    "/messes/{messId}/rooms/{roomId}": {
+      "schema": { "$ref": "#/entities/Room" },
+      "description": "Rooms in the mess added by admin"
     },
     "/messes/{messId}/meals/{mealId}": {
       "schema": { "$ref": "#/entities/Meal" },

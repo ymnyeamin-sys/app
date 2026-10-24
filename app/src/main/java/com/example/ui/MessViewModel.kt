@@ -10,16 +10,20 @@ import com.example.data.model.MemberSummary
 import com.example.data.model.Mess
 import com.example.data.model.MessSummary
 import com.example.data.model.OtherExpense
+import com.example.data.model.Room
 import com.example.data.model.UserProfile
 import com.example.data.repository.MessRepository
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -48,6 +52,16 @@ class MessViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _activeMess = MutableStateFlow<Mess?>(null)
     val activeMess: StateFlow<Mess?> = _activeMess.asStateFlow()
+
+    val currentUserId: String get() = auth.currentUser?.uid ?: ""
+
+    val isAdmin: StateFlow<Boolean> = _activeMess.map { mess ->
+        val uid = auth.currentUser?.uid ?: return@map false
+        mess?.isAdmin(uid) == true
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    private val _rooms = MutableStateFlow<List<Room>>(emptyList())
+    val rooms: StateFlow<List<Room>> = _rooms.asStateFlow()
 
     private val _meals = MutableStateFlow<List<Meal>>(emptyList())
     val meals: StateFlow<List<Meal>> = _meals.asStateFlow()
@@ -81,7 +95,7 @@ class MessViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loadInitialData() {
-        val currentUser = auth.currentUser ?: return
+        auth.currentUser ?: return
         viewModelScope.launch {
             _isLoading.value = true
             try {
@@ -103,6 +117,7 @@ class MessViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     } else {
                         _activeMess.value = null
+                        _rooms.value = emptyList()
                         _meals.value = emptyList()
                         _deposits.value = emptyList()
                         _bazarExpenses.value = emptyList()
@@ -165,13 +180,15 @@ class MessViewModel(application: Application) : AndroidViewModel(application) {
                 repository.observeMeals(messId, month),
                 repository.observeDeposits(messId, month),
                 repository.observeBazarExpenses(messId, month),
-                repository.observeOtherExpenses(messId, month)
-            ) { mealsList, depositsList, bazarList, otherList ->
+                repository.observeOtherExpenses(messId, month),
+                repository.observeRooms(messId)
+            ) { mealsList, depositsList, bazarList, otherList, roomsList ->
                 _meals.value = mealsList
                 _deposits.value = depositsList
                 _bazarExpenses.value = bazarList
                 _otherExpenses.value = otherList
-                computeSummary(mealsList, depositsList, bazarList, otherList, _activeMess.value)
+                _rooms.value = roomsList
+                computeSummary(mealsList, depositsList, bazarList, otherList, roomsList, _activeMess.value)
             }.catch { error ->
                 _uiMessage.value = "Error syncing mess data: ${error.message}"
             }.collect { summary ->
@@ -186,6 +203,7 @@ class MessViewModel(application: Application) : AndroidViewModel(application) {
             _deposits.value,
             _bazarExpenses.value,
             _otherExpenses.value,
+            _rooms.value,
             _activeMess.value
         )
     }
@@ -195,6 +213,7 @@ class MessViewModel(application: Application) : AndroidViewModel(application) {
         deposits: List<Deposit>,
         bazar: List<BazarExpense>,
         other: List<OtherExpense>,
+        rooms: List<Room>,
         mess: Mess?
     ): MessSummary {
         val totalMeals = meals.sumOf { it.totalMeals }
@@ -215,9 +234,15 @@ class MessViewModel(application: Application) : AndroidViewModel(application) {
                 val totalMemberCost = memberMealCost + sharedOtherPerMember
                 val balance = memberDeposit - totalMemberCost
 
+                val room = rooms.find { it.assignedMemberUids.contains(uid) }
+                val roomNumber = room?.let { "রুম ${it.roomNumber}" } ?: "অনির্ধারিত"
+                val roomType = room?.type ?: ""
+
                 MemberSummary(
                     userId = uid,
                     userName = name,
+                    roomNumber = roomNumber,
+                    roomType = roomType,
                     totalMeals = memberMeals,
                     totalDeposit = memberDeposit,
                     mealCost = memberMealCost,
@@ -243,14 +268,14 @@ class MessViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    // --- Actions ---
+    // --- Mess Actions ---
     fun createMess(name: String, joinCode: String? = null, onComplete: (Boolean) -> Unit = {}) {
         viewModelScope.launch {
             _isLoading.value = true
             val result = repository.createMess(name, joinCode)
             _isLoading.value = false
             if (result.isSuccess) {
-                _uiMessage.value = "মেস '${name}' সফলভাবে তৈরি হয়েছে!"
+                _uiMessage.value = "মেস '${name}' সফলভাবে তৈরি হয়েছে! আপনি এই মেসের অ্যাডমিন।"
                 setActiveMess(result.getOrThrow())
                 onComplete(true)
             } else {
@@ -266,7 +291,7 @@ class MessViewModel(application: Application) : AndroidViewModel(application) {
             val result = repository.joinMessByCode(code)
             _isLoading.value = false
             if (result.isSuccess) {
-                _uiMessage.value = "মেসে যুক্ত হয়েছেন!"
+                _uiMessage.value = "মেসে যুক্ত হয়েছেন! এখন রুম ও সিট বেছে নিতে পারেন।"
                 setActiveMess(result.getOrThrow())
                 onComplete(true)
             } else {
@@ -276,6 +301,100 @@ class MessViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun removeMember(memberUid: String, memberName: String) {
+        val currentMess = _activeMess.value ?: return
+        viewModelScope.launch {
+            val result = repository.removeMemberFromMess(currentMess.id, memberUid)
+            if (result.isSuccess) {
+                _uiMessage.value = "$memberName-কে মেস থেকে অপসারণ করা হয়েছে"
+            } else {
+                _uiMessage.value = result.exceptionOrNull()?.message ?: "সদস্য অপসারণে ব্যর্থ"
+            }
+        }
+    }
+
+    fun toggleAdminRole(memberUid: String, memberName: String) {
+        val currentMess = _activeMess.value ?: return
+        viewModelScope.launch {
+            val result = repository.toggleAdminRole(currentMess.id, memberUid)
+            if (result.isSuccess) {
+                _uiMessage.value = "$memberName-এর অ্যাডমিন রোল আপডেট হয়েছে"
+            } else {
+                _uiMessage.value = result.exceptionOrNull()?.message ?: "অ্যাডমিন রোল পরিবর্তনে ব্যর্থ"
+            }
+        }
+    }
+
+    // --- Room Actions ---
+    fun createOrUpdateRoom(
+        roomNumber: String,
+        type: String,
+        capacity: Int,
+        rent: Double,
+        existingRoomId: String? = null,
+        onComplete: (Boolean) -> Unit = {}
+    ) {
+        val currentMess = _activeMess.value ?: return
+        viewModelScope.launch {
+            val result = repository.createOrUpdateRoom(
+                messId = currentMess.id,
+                memberUids = currentMess.memberUids,
+                roomNumber = roomNumber,
+                type = type,
+                capacity = capacity,
+                rent = rent,
+                existingRoomId = existingRoomId
+            )
+            if (result.isSuccess) {
+                _uiMessage.value = "রুম $roomNumber সফলভাবে সংরক্ষিত হয়েছে!"
+                onComplete(true)
+            } else {
+                _uiMessage.value = result.exceptionOrNull()?.message ?: "রুম সেভ ব্যর্থ"
+                onComplete(false)
+            }
+        }
+    }
+
+    fun deleteRoom(roomId: String) {
+        val currentMess = _activeMess.value ?: return
+        viewModelScope.launch {
+            val result = repository.deleteRoom(currentMess.id, roomId)
+            if (result.isSuccess) {
+                _uiMessage.value = "রুম মুছে ফেলা হয়েছে"
+            } else {
+                _uiMessage.value = result.exceptionOrNull()?.message ?: "রুম মুছতে ব্যর্থ"
+            }
+        }
+    }
+
+    fun chooseRoom(room: Room, targetUid: String? = null, targetName: String? = null) {
+        val currentMess = _activeMess.value ?: return
+        val uid = targetUid ?: currentUserId
+        val name = targetName ?: (auth.currentUser?.displayName ?: "User")
+        viewModelScope.launch {
+            val result = repository.assignMemberToRoom(currentMess.id, room.id, uid, name)
+            if (result.isSuccess) {
+                _uiMessage.value = "$name রুম ${room.roomNumber}-এ উঠেছেন!"
+            } else {
+                _uiMessage.value = result.exceptionOrNull()?.message ?: "রুমে উঠতে ব্যর্থ"
+            }
+        }
+    }
+
+    fun leaveRoom(room: Room, targetUid: String? = null) {
+        val currentMess = _activeMess.value ?: return
+        val uid = targetUid ?: currentUserId
+        viewModelScope.launch {
+            val result = repository.leaveRoom(currentMess.id, room.id, uid)
+            if (result.isSuccess) {
+                _uiMessage.value = "রুম ত্যাগ সম্পন্ন হয়েছে"
+            } else {
+                _uiMessage.value = result.exceptionOrNull()?.message ?: "রুম ছাড়তে ব্যর্থ"
+            }
+        }
+    }
+
+    // --- Meals ---
     fun recordMeal(
         targetUserId: String,
         targetUserName: String,
@@ -321,6 +440,7 @@ class MessViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // --- Deposits ---
     fun recordDeposit(
         targetUserId: String,
         targetUserName: String,
@@ -362,6 +482,7 @@ class MessViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // --- Bazar ---
     fun recordBazar(
         title: String,
         amount: Double,
@@ -403,6 +524,7 @@ class MessViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // --- Other Expenses ---
     fun recordOtherExpense(
         title: String,
         amount: Double,

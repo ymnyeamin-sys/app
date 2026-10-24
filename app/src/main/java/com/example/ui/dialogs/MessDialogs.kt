@@ -11,18 +11,29 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MeetingRoom
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -600,3 +611,377 @@ fun RecordOtherExpenseDialog(
         }
     )
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CreateOrEditRoomDialog(
+    initialRoom: com.example.data.model.Room? = null,
+    onDismiss: () -> Unit,
+    onConfirm: (roomNumber: String, type: String, capacity: Int, rent: Double) -> Unit
+) {
+    var roomNumber by remember { mutableStateOf(initialRoom?.roomNumber ?: "") }
+    var selectedType by remember { mutableStateOf(initialRoom?.type ?: "Double") }
+    var expandedTypeDropdown by remember { mutableStateOf(false) }
+    var capacityText by remember { mutableStateOf(initialRoom?.capacity?.toString() ?: if (selectedType == "Single") "1" else "2") }
+    var rentText by remember { mutableStateOf(initialRoom?.rent?.takeIf { it > 0 }?.toInt()?.toString() ?: "") }
+
+    val roomTypes = listOf("Single", "Double", "Triple", "Shared")
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                if (initialRoom == null) "নতুন রুম যোগ করুন (Admin)" else "রুম সম্পাদনা করুন",
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = "মেসে আগে থেকেই রুম তৈরি করে রাখুন (সিঙ্গেল বা ডাবল)। পরে মেম্বাররা এই রুমে উঠতে পারবে।",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                OutlinedTextField(
+                    value = roomNumber,
+                    onValueChange = { roomNumber = it },
+                    label = { Text("রুম নম্বর / নাম * (উদা: 101, 202)") },
+                    modifier = Modifier.fillMaxWidth().testTag("room_number_input"),
+                    singleLine = true
+                )
+
+                ExposedDropdownMenuBox(
+                    expanded = expandedTypeDropdown,
+                    onExpandedChange = { expandedTypeDropdown = !expandedTypeDropdown }
+                ) {
+                    OutlinedTextField(
+                        value = when (selectedType) {
+                            "Single" -> "সিঙ্গেল রুম (Single - ১ সিট)"
+                            "Double" -> "ডাবল রুম (Double - ২ সিট)"
+                            "Triple" -> "ট্রিপল রুম (Triple - ৩ সিট)"
+                            else -> "শেয়ার্ড রুম (Shared)"
+                        },
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("রুমের ধরন (Type) *") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedTypeDropdown) },
+                        modifier = Modifier.menuAnchor().fillMaxWidth()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = expandedTypeDropdown,
+                        onDismissRequest = { expandedTypeDropdown = false }
+                    ) {
+                        roomTypes.forEach { type ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        when (type) {
+                                            "Single" -> "সিঙ্গেল রুম (Single - ১ সিট)"
+                                            "Double" -> "ডাবল রুম (Double - ২ সিট)"
+                                            "Triple" -> "ট্রিপল রুম (Triple - ৩ সিট)"
+                                            else -> "শেয়ার্ড রুম (Shared)"
+                                        }
+                                    )
+                                },
+                                onClick = {
+                                    selectedType = type
+                                    capacityText = when (type) {
+                                        "Single" -> "1"
+                                        "Double" -> "2"
+                                        "Triple" -> "3"
+                                        else -> "4"
+                                    }
+                                    expandedTypeDropdown = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = capacityText,
+                    onValueChange = { capacityText = it.filter { c -> c.isDigit() } },
+                    label = { Text("সিট ধারণক্ষমতা (Capacity) *") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth().testTag("room_capacity_input"),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    value = rentText,
+                    onValueChange = { rentText = it.filter { c -> c.isDigit() || c == '.' } },
+                    label = { Text("ভাড়া ৳ (ঐচ্ছিক সিট বা রুম ভাড়া)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth().testTag("room_rent_input"),
+                    singleLine = true
+                )
+            }
+        },
+        confirmButton = {
+            val capacity = capacityText.toIntOrNull() ?: 1
+            val rent = rentText.toDoubleOrNull() ?: 0.0
+            Button(
+                onClick = {
+                    if (roomNumber.isNotBlank() && capacity >= 1) {
+                        onConfirm(roomNumber.trim(), selectedType, capacity, rent)
+                    }
+                },
+                enabled = roomNumber.isNotBlank() && capacity >= 1,
+                modifier = Modifier.testTag("save_room_button")
+            ) {
+                Text("সংরক্ষণ করুন")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("বাতিল") }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AssignMemberRoomDialog(
+    mess: Mess,
+    room: com.example.data.model.Room,
+    onDismiss: () -> Unit,
+    onAssign: (memberUid: String, memberName: String) -> Unit
+) {
+    var selectedIndex by remember { mutableStateOf(0) }
+    var expandedDropdown by remember { mutableStateOf(false) }
+
+    val memberName = mess.memberNames.getOrNull(selectedIndex) ?: "Member"
+    val memberUid = mess.memberUids.getOrNull(selectedIndex) ?: ""
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("রুম ${room.roomNumber}-এ সদস্য যুক্ত করুন", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = "কোন সদস্যকে এই রুমে বরাদ্দ দিতে চান নির্বাচন করুন:",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                ExposedDropdownMenuBox(
+                    expanded = expandedDropdown,
+                    onExpandedChange = { expandedDropdown = !expandedDropdown }
+                ) {
+                    OutlinedTextField(
+                        value = memberName,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("সদস্য নির্বাচন") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedDropdown) },
+                        modifier = Modifier.menuAnchor().fillMaxWidth()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = expandedDropdown,
+                        onDismissRequest = { expandedDropdown = false }
+                    ) {
+                        mess.memberUids.forEachIndexed { idx, uid ->
+                            val name = mess.memberNames.getOrNull(idx) ?: "Member $idx"
+                            val isAlreadyInThisRoom = room.assignedMemberUids.contains(uid)
+                            DropdownMenuItem(
+                                text = {
+                                    Text(if (isAlreadyInThisRoom) "$name (ইতিমধ্যেই এই রুমে আছেন)" else name)
+                                },
+                                onClick = {
+                                    selectedIndex = idx
+                                    expandedDropdown = false
+                                },
+                                enabled = !isAlreadyInThisRoom
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (memberUid.isNotBlank()) {
+                        onAssign(memberUid, memberName)
+                    }
+                },
+                enabled = memberUid.isNotBlank() && !room.assignedMemberUids.contains(memberUid)
+            ) {
+                Text("রুমে দিন")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("বাতিল") }
+        }
+    )
+}
+
+@Composable
+fun AdminManagementDialog(
+    mess: Mess,
+    rooms: List<com.example.data.model.Room>,
+    currentUserId: String,
+    onDismiss: () -> Unit,
+    onToggleAdmin: (memberUid: String, memberName: String) -> Unit,
+    onRemoveMember: (memberUid: String, memberName: String) -> Unit
+) {
+    var memberToRemove by remember { mutableStateOf<Pair<String, String>?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.AdminPanelSettings,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(text = "মেস কন্ট্রোল ও সদস্য তালিকা", fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "মেসের সব সদস্যদের তালিকা, অ্যাডমিন ক্ষমতা ও রুম অবস্থান নিয়ন্ত্রণ করুন।",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                HorizontalDivider()
+
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(300.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(mess.memberUids) { uid ->
+                        val index = mess.memberUids.indexOf(uid)
+                        val name = mess.memberNames.getOrNull(index) ?: "Member"
+                        val isUserAdmin = mess.isAdmin(uid)
+                        val isSelf = uid == currentUserId
+                        val memberRoom = rooms.find { it.assignedMemberUids.contains(uid) }
+
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isUserAdmin)
+                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                                else
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                            )
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = name,
+                                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                                            )
+                                            if (isSelf) {
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                    text = "(আপনি)",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            if (isUserAdmin) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(4.dp),
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                    contentColor = MaterialTheme.colorScheme.onPrimary
+                                                ) {
+                                                    Text(
+                                                        text = "👑 অ্যাডমিন",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                            }
+
+                                            Text(
+                                                text = if (memberRoom != null) "🏠 রুম ${memberRoom.roomNumber}" else "🏠 রুম নেই",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+
+                                    // Action buttons
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        // Toggle admin role button
+                                        IconButton(
+                                            onClick = { onToggleAdmin(uid, name) },
+                                            enabled = !isSelf || mess.adminUids.size > 1
+                                        ) {
+                                            Icon(
+                                                imageVector = if (isUserAdmin) Icons.Default.Security else Icons.Default.AdminPanelSettings,
+                                                contentDescription = if (isUserAdmin) "অ্যাডমিন পদ বাতিল" else "অ্যাডমিন বানান",
+                                                tint = if (isUserAdmin) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+
+                                        // Remove member button
+                                        if (!isSelf) {
+                                            IconButton(onClick = { memberToRemove = uid to name }) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Delete,
+                                                    contentDescription = "সদস্য অপসারণ",
+                                                    tint = MaterialTheme.colorScheme.error
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss) {
+                Text("ঠিক আছে")
+            }
+        }
+    )
+
+    // Remove Confirmation Alert
+    if (memberToRemove != null) {
+        val (uid, name) = memberToRemove!!
+        AlertDialog(
+            onDismissRequest = { memberToRemove = null },
+            title = { Text("সদস্য অপসারণ নিশ্চিত করুন") },
+            text = { Text("আপনি কি নিশ্চিত যে $name-কে এই মেস থেকে বাদ দিতে চান?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onRemoveMember(uid, name)
+                        memberToRemove = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("অপসারণ করুন")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { memberToRemove = null }) {
+                    Text("বাতিল")
+                }
+            }
+        )
+    }
+}
+

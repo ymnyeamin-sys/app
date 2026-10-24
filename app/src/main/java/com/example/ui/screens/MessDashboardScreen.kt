@@ -29,23 +29,33 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Dining
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.MeetingRoom
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -53,6 +63,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -90,7 +101,11 @@ import com.example.data.model.MemberSummary
 import com.example.data.model.Mess
 import com.example.data.model.MessSummary
 import com.example.data.model.OtherExpense
+import com.example.data.model.Room
 import com.example.ui.MessViewModel
+import com.example.ui.dialogs.AdminManagementDialog
+import com.example.ui.dialogs.AssignMemberRoomDialog
+import com.example.ui.dialogs.CreateOrEditRoomDialog
 import com.example.ui.dialogs.RecordBazarDialog
 import com.example.ui.dialogs.RecordDepositDialog
 import com.example.ui.dialogs.RecordMealDialog
@@ -122,10 +137,14 @@ fun MessDashboardScreen(
     val deposits by viewModel.deposits.collectAsState()
     val bazarExpenses by viewModel.bazarExpenses.collectAsState()
     val otherExpenses by viewModel.otherExpenses.collectAsState()
+    val rooms by viewModel.rooms.collectAsState()
     val messSummary by viewModel.messSummary.collectAsState()
+    val isAdmin by viewModel.isAdmin.collectAsState()
+    val currentUserId = viewModel.currentUserId
 
     var selectedTab by remember { mutableIntStateOf(0) }
     var showTopMenu by remember { mutableStateOf(false) }
+    var showAdminDashboard by remember { mutableStateOf(false) }
 
     // Dialog controllers
     var showRecordMealDialog by remember { mutableStateOf(false) }
@@ -133,6 +152,19 @@ fun MessDashboardScreen(
     var showRecordDepositDialog by remember { mutableStateOf(false) }
     var showRecordBazarDialog by remember { mutableStateOf(false) }
     var showRecordOtherDialog by remember { mutableStateOf(false) }
+    var showRoomDialog by remember { mutableStateOf(false) }
+    var editingRoom by remember { mutableStateOf<Room?>(null) }
+    var assigningMemberRoom by remember { mutableStateOf<Room?>(null) }
+    var showAdminDialog by remember { mutableStateOf(false) }
+
+    if (showAdminDashboard && isAdmin) {
+        AdminDashboardScreen(
+            viewModel = viewModel,
+            mess = mess,
+            onBack = { showAdminDashboard = false }
+        )
+        return
+    }
 
     LaunchedEffect(uiMessage) {
         uiMessage?.let {
@@ -147,12 +179,28 @@ fun MessDashboardScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text(
-                            text = mess.name,
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = mess.name,
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (isAdmin) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    contentColor = MaterialTheme.colorScheme.onPrimary
+                                ) {
+                                    Text(
+                                        text = "👑 অ্যাডমিন",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
@@ -192,6 +240,19 @@ fun MessDashboardScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next Month")
                     }
 
+                    if (isAdmin) {
+                        IconButton(
+                            onClick = { showAdminDashboard = true },
+                            modifier = Modifier.testTag("admin_dashboard_top_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AdminPanelSettings,
+                                contentDescription = "অ্যাডমিন ড্যাশবোর্ড",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+
                     Box {
                         IconButton(onClick = { showTopMenu = true }) {
                             Icon(Icons.Default.MoreVert, contentDescription = "More")
@@ -200,6 +261,33 @@ fun MessDashboardScreen(
                             expanded = showTopMenu,
                             onDismissRequest = { showTopMenu = false }
                         ) {
+                            if (isAdmin) {
+                                DropdownMenuItem(
+                                    text = { Text("👑 অ্যাডমিন ড্যাশবোর্ড") },
+                                    onClick = {
+                                        showTopMenu = false
+                                        showAdminDashboard = true
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.AdminPanelSettings, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("➕ নতুন রুম যোগ (Single/Double)") },
+                                    onClick = {
+                                        showTopMenu = false
+                                        editingRoom = null
+                                        showRoomDialog = true
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.MeetingRoom, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("👥 সদস্য ও পারমিশন কন্ট্রোল") },
+                                    onClick = {
+                                        showTopMenu = false
+                                        showAdminDialog = true
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.Group, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text("মেস পরিবর্তন") },
                                 onClick = {
@@ -258,8 +346,15 @@ fun MessDashboardScreen(
                 NavigationBarItem(
                     selected = selectedTab == 3,
                     onClick = { selectedTab = 3 },
+                    icon = { Icon(Icons.Default.MeetingRoom, contentDescription = null) },
+                    label = { Text("রুম ও সিট") },
+                    modifier = Modifier.testTag("tab_rooms")
+                )
+                NavigationBarItem(
+                    selected = selectedTab == 4,
+                    onClick = { selectedTab = 4 },
                     icon = { Icon(Icons.AutoMirrored.Filled.ReceiptLong, contentDescription = null) },
-                    label = { Text("মাসিক হিসাব") },
+                    label = { Text("হিসাব") },
                     modifier = Modifier.testTag("tab_summary")
                 )
             }
@@ -294,6 +389,19 @@ fun MessDashboardScreen(
                     )
                 }
                 3 -> {
+                    if (isAdmin) {
+                        ExtendedFloatingActionButton(
+                            onClick = {
+                                editingRoom = null
+                                showRoomDialog = true
+                            },
+                            icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                            text = { Text("নতুন রুম") },
+                            modifier = Modifier.testTag("fab_add_room")
+                        )
+                    }
+                }
+                4 -> {
                     FloatingActionButton(
                         onClick = {
                             shareMonthSummary(context, mess, currentMonth, messSummary)
@@ -335,7 +443,36 @@ fun MessDashboardScreen(
                     deposits = deposits,
                     onDeleteDeposit = { viewModel.deleteDeposit(it) }
                 )
-                3 -> MonthEndSummaryTab(
+                3 -> RoomsTab(
+                    mess = mess,
+                    rooms = rooms,
+                    isAdmin = isAdmin,
+                    currentUserId = currentUserId,
+                    onAddRoom = {
+                        editingRoom = null
+                        showRoomDialog = true
+                    },
+                    onEditRoom = { room ->
+                        editingRoom = room
+                        showRoomDialog = true
+                    },
+                    onDeleteRoom = { roomId ->
+                        viewModel.deleteRoom(roomId)
+                    },
+                    onChooseRoom = { room ->
+                        viewModel.chooseRoom(room)
+                    },
+                    onLeaveRoom = { room ->
+                        viewModel.leaveRoom(room)
+                    },
+                    onAssignMember = { room ->
+                        assigningMemberRoom = room
+                    },
+                    onOpenAdminDashboard = {
+                        showAdminDashboard = true
+                    }
+                )
+                4 -> MonthEndSummaryTab(
                     mess = mess,
                     month = currentMonth,
                     summary = messSummary,
@@ -389,6 +526,54 @@ fun MessDashboardScreen(
             onConfirm = { title, amount, date ->
                 viewModel.recordOtherExpense(title, amount, date)
                 showRecordOtherDialog = false
+            }
+        )
+    }
+
+    if (showRoomDialog) {
+        CreateOrEditRoomDialog(
+            initialRoom = editingRoom,
+            onDismiss = {
+                showRoomDialog = false
+                editingRoom = null
+            },
+            onConfirm = { roomNumber, type, capacity, rent ->
+                viewModel.createOrUpdateRoom(
+                    roomNumber = roomNumber,
+                    type = type,
+                    capacity = capacity,
+                    rent = rent,
+                    existingRoomId = editingRoom?.id
+                )
+                showRoomDialog = false
+                editingRoom = null
+            }
+        )
+    }
+
+    if (assigningMemberRoom != null) {
+        AssignMemberRoomDialog(
+            mess = mess,
+            room = assigningMemberRoom!!,
+            onDismiss = { assigningMemberRoom = null },
+            onAssign = { memberUid, memberName ->
+                viewModel.chooseRoom(assigningMemberRoom!!, targetUid = memberUid, targetName = memberName)
+                assigningMemberRoom = null
+            }
+        )
+    }
+
+    if (showAdminDialog) {
+        AdminManagementDialog(
+            mess = mess,
+            rooms = rooms,
+            currentUserId = currentUserId,
+            onDismiss = { showAdminDialog = false },
+            onToggleAdmin = { memberUid, memberName ->
+                viewModel.toggleAdminRole(memberUid, memberName)
+            },
+            onRemoveMember = { memberUid, memberName ->
+                viewModel.removeMember(memberUid, memberName)
             }
         )
     }
@@ -814,6 +999,367 @@ private fun DepositsTab(
     }
 }
 
+// --- Tab 3: Rooms & Seats ---
+@Composable
+private fun RoomsTab(
+    mess: Mess,
+    rooms: List<Room>,
+    isAdmin: Boolean,
+    currentUserId: String,
+    onAddRoom: () -> Unit,
+    onEditRoom: (Room) -> Unit,
+    onDeleteRoom: (String) -> Unit,
+    onChooseRoom: (Room) -> Unit,
+    onLeaveRoom: (Room) -> Unit,
+    onAssignMember: (Room) -> Unit,
+    onOpenAdminDashboard: () -> Unit = {}
+) {
+    var roomToDelete by remember { mutableStateOf<Room?>(null) }
+    val totalCapacity = rooms.sumOf { it.capacity }
+    val availableSeats = rooms.sumOf { it.availableSeats }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        // Room Overview Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.SpaceAround
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("মোট রুম", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${rooms.size} টি", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("মোট সিট", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("$totalCapacity টি", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("খালি সিট", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        "$availableSeats টি",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = if (availableSeats > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                        )
+                    )
+                }
+            }
+        }
+
+        // Admin creation quick bar if admin
+        if (isAdmin) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.AdminPanelSettings,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "অ্যাডমিন কন্ট্রোল সেন্টার",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "সিঙ্গেল/ডাবল রুম তৈরি ও সদস্য এক্সেস পারমিশন নিয়ন্ত্রণ করুন",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Button(
+                        onClick = onOpenAdminDashboard,
+                        modifier = Modifier.testTag("admin_open_dashboard_button")
+                    ) {
+                        Text("ড্যাশবোর্ড")
+                    }
+                }
+            }
+
+            FilledTonalButton(
+                onClick = onAddRoom,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("admin_add_room_button"),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("নতুন রুম যোগ করুন (সিঙ্গেল / ডাবল)")
+            }
+        }
+
+        if (rooms.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = if (isAdmin)
+                        "এখনো কোনো রুম যোগ করা হয়নি।\nউপরে '+ নতুন রুম যোগ করুন' বাটনে চাপ দিয়ে সিঙ্গেল বা ডাবল রুম তৈরি করুন।"
+                    else
+                        "অ্যাডমিন এখনো কোনো রুম যোগ করেননি।\nরুম তৈরি হলে আপনি নিজের পছন্দের রুমে উঠতে পারবেন।",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(rooms) { room ->
+                    val isCurrentUserInRoom = room.assignedMemberUids.contains(currentUserId)
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isCurrentUserInRoom)
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                            else
+                                MaterialTheme.colorScheme.surface
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            // Room Header
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.MeetingRoom,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "রুম ${room.roomNumber}",
+                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+
+                                    val typeLabel = when (room.type) {
+                                        "Single" -> "সিঙ্গেল (১ সিট)"
+                                        "Double" -> "ডাবল (২ সিট)"
+                                        "Triple" -> "ট্রিপল (৩ সিট)"
+                                        else -> "শেয়ার্ড (${room.capacity} সিট)"
+                                    }
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = MaterialTheme.colorScheme.surfaceVariant,
+                                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                    ) {
+                                        Text(
+                                            text = typeLabel,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = if (room.isFull)
+                                        MaterialTheme.colorScheme.errorContainer
+                                    else
+                                        MaterialTheme.colorScheme.secondaryContainer,
+                                    contentColor = if (room.isFull)
+                                        MaterialTheme.colorScheme.onErrorContainer
+                                    else
+                                        MaterialTheme.colorScheme.onSecondaryContainer
+                                ) {
+                                    Text(
+                                        text = if (room.isFull) "পূর্ণ (Full)" else "${room.availableSeats}টি সিট খালি",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                    )
+                                }
+                            }
+
+                            if (room.rent > 0) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "সিট/রুম ভাড়া: ৳ ${room.rent.toInt()}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Occupants
+                            Text(
+                                text = "এই রুমের সদস্যরা (${room.assignedMemberUids.size}/${room.capacity}):",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+
+                            if (room.assignedMemberNames.isEmpty()) {
+                                Text(
+                                    text = "বর্তমানে এই রুমে কেউ ওঠেননি। রুম খালি আছে।",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    modifier = Modifier.padding(vertical = 4.dp)
+                                )
+                            } else {
+                                Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                                    room.assignedMemberNames.forEachIndexed { idx, name ->
+                                        val memUid = room.assignedMemberUids.getOrNull(idx)
+                                        val isSelf = memUid == currentUserId
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.padding(vertical = 2.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Person,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp),
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = if (isSelf) "$name (আপনি)" else name,
+                                                style = MaterialTheme.typography.bodyMedium.copy(
+                                                    fontWeight = if (isSelf) FontWeight.Bold else FontWeight.Normal
+                                                ),
+                                                color = if (isSelf) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Action buttons
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Member Move in / Vacate button
+                                if (isCurrentUserInRoom) {
+                                    OutlinedButton(
+                                        onClick = { onLeaveRoom(room) },
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                                    ) {
+                                        Text("রুম ছাড়ুন")
+                                    }
+                                } else if (!room.isFull) {
+                                    Button(
+                                        onClick = { onChooseRoom(room) },
+                                        modifier = Modifier.testTag("choose_room_${room.roomNumber}")
+                                    ) {
+                                        Text("এই রুমে উঠুন")
+                                    }
+                                } else {
+                                    Text(
+                                        text = "সিট খালি নেই",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.outline
+                                    )
+                                }
+
+                                // Admin controls
+                                if (isAdmin) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (!room.isFull) {
+                                            IconButton(onClick = { onAssignMember(room) }) {
+                                                Icon(
+                                                    imageVector = Icons.Default.PersonAdd,
+                                                    contentDescription = "সদস্য বরাদ্দ দিন",
+                                                    tint = MaterialTheme.colorScheme.primary
+                                                )
+                                            }
+                                        }
+                                        IconButton(onClick = { onEditRoom(room) }) {
+                                            Icon(
+                                                imageVector = Icons.Default.Edit,
+                                                contentDescription = "রুম এডিট",
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                        IconButton(onClick = { roomToDelete = room }) {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = "রুম ডিলিট",
+                                                tint = MaterialTheme.colorScheme.error
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (roomToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { roomToDelete = null },
+            title = { Text("রুম মুছে ফেলা নিশ্চিত করুন") },
+            text = { Text("আপনি কি নিশ্চিত যে রুম ${roomToDelete?.roomNumber} মুছে ফেলতে চান? এতে এই রুমের সদস্যদের রুম অ্যাসাইনমেন্ট বাতিল হবে।") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onDeleteRoom(roomToDelete!!.id)
+                        roomToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("মুছে ফেলুন")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { roomToDelete = null }) {
+                    Text("বাতিল")
+                }
+            }
+        )
+    }
+}
+
 // --- Tab 4: Month-End Summary ---
 @Composable
 private fun MonthEndSummaryTab(
@@ -854,10 +1400,31 @@ private fun MonthEndSummaryTab(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = mem.userName,
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                        )
+                        Column {
+                            Text(
+                                text = mem.userName,
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            if (mem.roomNumber.isNotBlank() && mem.roomNumber != "অনির্ধারিত") {
+                                val typeText = when (mem.roomType) {
+                                    "Single" -> "সিঙ্গেল"
+                                    "Double" -> "ডাবল"
+                                    "Triple" -> "ট্রিপল"
+                                    else -> mem.roomType
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                                    contentColor = MaterialTheme.colorScheme.onSurface
+                                ) {
+                                    Text(
+                                        text = "🏠 ${mem.roomNumber}${if (typeText.isNotBlank()) " ($typeText)" else ""}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
 
                         Surface(
                             shape = RoundedCornerShape(8.dp),
@@ -980,7 +1547,8 @@ private fun shareMonthSummary(
         else
             "বকেয়া/দেবে: -৳ ${String.format(Locale.US, "%.0f", -mem.netBalance)}"
 
-        sb.append("• ${mem.userName}: মিল ${String.format(Locale.US, "%.1f", mem.totalMeals)} টি | জমা ৳ ${String.format(Locale.US, "%.0f", mem.totalDeposit)} | মোট খরচ ৳ ${String.format(Locale.US, "%.0f", mem.totalCost)} => $status\n")
+        val roomInfo = if (mem.roomNumber.isNotBlank() && mem.roomNumber != "অনির্ধারিত") " (${mem.roomNumber})" else ""
+        sb.append("• ${mem.userName}$roomInfo: মিল ${String.format(Locale.US, "%.1f", mem.totalMeals)} টি | জমা ৳ ${String.format(Locale.US, "%.0f", mem.totalDeposit)} | মোট খরচ ৳ ${String.format(Locale.US, "%.0f", mem.totalCost)} => $status\n")
     }
     sb.append("-----------------------------\n")
     sb.append("তৈরি হয়েছে Mess Meal Manager অ্যাপ দিয়ে")
@@ -993,3 +1561,4 @@ private fun shareMonthSummary(
     val shareIntent = Intent.createChooser(sendIntent, "মেসের হিসাব শেয়ার করুন")
     context.startActivity(shareIntent)
 }
+
