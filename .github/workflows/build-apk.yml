@@ -21,19 +21,29 @@ jobs:
           java-version: "17"
           cache: gradle
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          cmdline-tools-version: "latest"
+      - name: Ensure Android SDK exists
+        shell: bash
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          ls -la "$ANDROID_HOME" || true
+          ls -la "$ANDROID_HOME/cmdline-tools" || true
 
       - name: Install Android SDK packages
         shell: bash
         run: |
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
-            "platform-tools" \
-            "platforms;android-36" \
-            "build-tools;36.0.0"
+          export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          if [ -x "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
+            yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses
+            "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --install \
+              "platform-tools" \
+              "platforms;android-36" \
+              "build-tools;36.0.0"
+          else
+            echo "sdkmanager not found at $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+            ls -R "$ANDROID_SDK_ROOT" || true
+            exit 1
+          fi
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
