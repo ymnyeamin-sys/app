@@ -29,16 +29,21 @@ jobs:
           if [ ! -x "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
             wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O /tmp/cmdline-tools.zip
             unzip -q /tmp/cmdline-tools.zip -d "$ANDROID_SDK_ROOT"
-            mv "$ANDROID_SDK_ROOT/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools-old" 2>/dev/null || true
+            if [ -d "$ANDROID_SDK_ROOT/cmdline-tools" ] && [ ! -d "$ANDROID_SDK_ROOT/cmdline-tools-old" ]; then
+              mv "$ANDROID_SDK_ROOT/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools-old"
+            fi
             mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
-            mv "$ANDROID_SDK_ROOT/cmdline-tools-old/bin" "$ANDROID_SDK_ROOT/cmdline-tools/bin" 2>/dev/null || true
+            if [ -d "$ANDROID_SDK_ROOT/cmdline-tools-old/bin" ]; then
+              mv "$ANDROID_SDK_ROOT/cmdline-tools-old/bin" "$ANDROID_SDK_ROOT/cmdline-tools/bin"
+            fi
           fi
 
       - name: Install Android SDK packages
         shell: bash
         run: |
           export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
-          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses
+          set +o pipefail
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
           "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --install \
             "platform-tools" \
             "platforms;android-35" \
