@@ -25,13 +25,25 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 import java.util.UUID
 
+private fun createFirestoreInstance(context: Context): FirebaseFirestore {
+    val resId = context.applicationContext.resources.getIdentifier(
+        "firestore_database_id",
+        "string",
+        context.applicationContext.packageName
+    )
+    val dbId = if (resId != 0) {
+        try { context.applicationContext.getString(resId) } catch (e: Exception) { null }
+    } else null
+    return if (!dbId.isNullOrBlank()) {
+        FirebaseFirestore.getInstance(dbId)
+    } else {
+        FirebaseFirestore.getInstance()
+    }
+}
+
 class MessRepository(private val db: FirebaseFirestore) {
 
-    constructor(context: Context) : this(
-        FirebaseFirestore.getInstance(
-            context.applicationContext.getString(R.string.firestore_database_id)
-        )
-    )
+    constructor(context: Context) : this(createFirestoreInstance(context))
 
     private val auth = Firebase.auth
 
