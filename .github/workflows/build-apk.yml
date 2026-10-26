@@ -1,64 +1,69 @@
 name: Build Android APK
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
+    name: Build & Release Debug APK
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout source
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: "17"
-          cache: gradle
+          distribution: 'temurin'
+          java-version: '17'
 
-      - name: Install Android command line tools
+      - name: Verify Java environment
         shell: bash
         run: |
-          export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
-          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
-          if [ ! -x "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
-            wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O /tmp/cmdline-tools.zip
-            unzip -q /tmp/cmdline-tools.zip -d "$ANDROID_SDK_ROOT"
-            if [ -d "$ANDROID_SDK_ROOT/cmdline-tools" ] && [ ! -d "$ANDROID_SDK_ROOT/cmdline-tools-old" ]; then
-              mv "$ANDROID_SDK_ROOT/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools-old"
-            fi
-            mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
-            if [ -d "$ANDROID_SDK_ROOT/cmdline-tools-old/bin" ]; then
-              mv "$ANDROID_SDK_ROOT/cmdline-tools-old/bin" "$ANDROID_SDK_ROOT/cmdline-tools/bin"
-            fi
+          echo "=== Java Environment Verification ==="
+          java -version
+          echo "JAVA_HOME: ${JAVA_HOME}"
+          if [ -z "${JAVA_HOME}" ] || [ ! -d "${JAVA_HOME}" ]; then
+            echo "Error: JAVA_HOME is not set or directory does not exist." >&2
+            exit 1
           fi
-
-      - name: Install Android SDK packages
-        shell: bash
-        run: |
-          export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
-          set +o pipefail
-          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
-          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --install \
-            "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0"
+          JAVA_VERSION_OUTPUT=$(java -version 2>&1 | awk -F '"' '/version/ {print $2}')
+          echo "Detected Java version string: ${JAVA_VERSION_OUTPUT}"
+          MAJOR_VERSION=$(echo "${JAVA_VERSION_OUTPUT}" | awk -F '.' '{if ($1 == "1") print $2; else print $1}')
+          echo "Active Java major version: ${MAJOR_VERSION}"
+          if ! [[ "${MAJOR_VERSION}" =~ ^[0-9]+$ ]]; then
+            echo "Error: Could not detect valid numeric Java major version." >&2
+            exit 1
+          fi
+          if [ "${MAJOR_VERSION}" -lt 17 ]; then
+            echo "Error: Active Java version (${MAJOR_VERSION}) is lower than 17. Java 17 or newer required." >&2
+            exit 1
+          fi
+          echo "Java verification successful (version ${MAJOR_VERSION} >= 17)."
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: "9.3.1"
+          gradle-version: '9.3.1'
 
-      - name: Create debug keystore
+      - name: Create temporary debug keystore
+        shell: bash
         run: |
-          if [ ! -f "$GITHUB_WORKSPACE/debug.keystore" ]; then
+          echo "=== Checking Temporary Debug Keystore ==="
+          KEYSTORE_PATH="./debug.keystore"
+          if [ -f "${KEYSTORE_PATH}" ]; then
+            echo "Keystore already exists at ${KEYSTORE_PATH}."
+          else
+            echo "Keystore not found. Generating temporary debug keystore..."
             keytool -genkeypair -v \
-              -keystore "$GITHUB_WORKSPACE/debug.keystore" \
+              -keystore "${KEYSTORE_PATH}" \
               -storepass android \
               -alias androiddebugkey \
               -keypass android \
@@ -67,13 +72,130 @@ jobs:
               -validity 10000 \
               -dname "CN=Android Debug,O=Android,C=US"
           fi
+          if [ ! -f "${KEYSTORE_PATH}" ]; then
+            echo "Error: Failed to create ./debug.keystore" >&2
+            exit 1
+          fi
+          echo "Debug keystore is ready."
 
       - name: Build debug APK
-        run: gradle assembleDebug --no-daemon --stacktrace
+        shell: bash
+        run: |
+          gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Upload APK
+      - name: Verify debug APK
+        shell: bash
+        run: |
+          echo "=== Verifying Debug APK ==="
+          TARGET_APK="app/build/outputs/apk/debug/app-debug.apk"
+          if [ ! -f "${TARGET_APK}" ]; then
+            echo "Error: Expected APK not found at ${TARGET_APK}." >&2
+            echo "Searching app/build/outputs/apk for any generated APKs:" >&2
+            if [ -d "app/build/outputs/apk" ]; then
+              find app/build/outputs/apk -maxdepth 3 -type f -name "*.apk" >&2 || true
+            else
+              echo "Directory app/build/outputs/apk does not exist." >&2
+            fi
+            exit 1
+          fi
+
+          if [ ! -s "${TARGET_APK}" ]; then
+            echo "Error: APK file exists at ${TARGET_APK} but is empty (0 bytes)." >&2
+            exit 1
+          fi
+
+          case "${TARGET_APK}" in
+            *.apk) ;;
+            *)
+              echo "Error: ${TARGET_APK} does not have .apk extension." >&2
+              exit 1
+              ;;
+          esac
+
+          FILE_SIZE=$(stat -c%s "${TARGET_APK}" 2>/dev/null || stat -f%z "${TARGET_APK}" 2>/dev/null || wc -c < "${TARGET_APK}")
+          echo "Verified ${TARGET_APK} exists, is a regular non-empty file (${FILE_SIZE} bytes), and is named app-debug.apk."
+
+      - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: android-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: app-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+      - name: Prepare APK release asset
+        id: prepare_asset
+        shell: bash
+        run: |
+          echo "=== Preparing Release Asset ==="
+          SRC_APK="app/build/outputs/apk/debug/app-debug.apk"
+          TEMP_DIR="${RUNNER_TEMP}/apk-release-asset"
+          mkdir -p "${TEMP_DIR}"
+          cp "${SRC_APK}" "${TEMP_DIR}/app-debug.apk"
+          PREPARED_APK="${TEMP_DIR}/app-debug.apk"
+          if [ ! -s "${PREPARED_APK}" ]; then
+            echo "Error: Prepared APK is missing or empty." >&2
+            exit 1
+          fi
+          echo "Prepared release asset at: ${PREPARED_APK}"
+          echo "asset_path=${PREPARED_APK}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish APK to GitHub Releases
+        id: create_release
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          echo "=== Publishing to GitHub Releases ==="
+          gh --version
+          
+          ASSET_PATH="${{ steps.prepare_asset.outputs.asset_path }}"
+          echo "Validating asset at: ${ASSET_PATH}"
+          if [ ! -f "${ASSET_PATH}" ]; then
+            echo "Error: Release asset not found at ${ASSET_PATH}" >&2
+            exit 1
+          fi
+          if [ ! -s "${ASSET_PATH}" ]; then
+            echo "Error: Release asset is empty at ${ASSET_PATH}" >&2
+            exit 1
+          fi
+          ASSET_FILENAME=$(basename "${ASSET_PATH}")
+          if [ "${ASSET_FILENAME}" != "app-debug.apk" ]; then
+            echo "Error: Release asset filename must be exactly 'app-debug.apk', got '${ASSET_FILENAME}'" >&2
+            exit 1
+          fi
+
+          RELEASE_TAG="debug-apk-build-${{ github.run_number }}-${{ github.run_attempt }}"
+          RELEASE_TITLE="Debug APK Build #${{ github.run_number }}"
+          
+          echo "Creating GitHub Release with tag: ${RELEASE_TAG}"
+          gh release create "${RELEASE_TAG}" "${ASSET_PATH}" \
+            --title "${RELEASE_TITLE}" \
+            --target "${{ github.sha }}" \
+            --latest \
+            --notes "Automated debug APK build #${{ github.run_number }} (run attempt ${{ github.run_attempt }}) from commit ${{ github.sha }}."
+
+      - name: Report APK download result
+        if: always()
+        shell: bash
+        run: |
+          echo "==========================================================="
+          echo "                 APK BUILD & RELEASE REPORT                "
+          echo "==========================================================="
+          echo "Release status: ${{ steps.create_release.outcome }}"
+          
+          if [ "${{ steps.create_release.outcome }}" == "success" ]; then
+            echo ""
+            echo "SUCCESS: Debug APK published to GitHub Releases!"
+            echo "Permanent Direct APK Download URL:"
+            echo "https://github.com/${{ github.repository }}/releases/latest/download/app-debug.apk"
+            echo ""
+            echo "This permanent URL always redirects directly to 'app-debug.apk' from the latest successful release."
+          else
+            echo ""
+            echo "NOTICE: Release publishing did not complete or was skipped."
+            echo "The debug APK artifact is still safely stored in GitHub Actions:"
+            echo "Artifact Name: app-debug-apk"
+            echo "You can download it directly from the GitHub Actions run summary."
+          fi
+          echo "==========================================================="
