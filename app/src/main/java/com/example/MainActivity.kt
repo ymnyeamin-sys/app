@@ -29,6 +29,7 @@ import androidx.credentials.GetCredentialRequest
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ui.MessViewModel
 import com.example.ui.screens.AuthScreen
+import com.example.ui.screens.EmailVerificationScreen
 import com.example.ui.screens.MessDashboardScreen
 import com.example.ui.screens.MessSelectorScreen
 import com.example.ui.screens.signOutUser
@@ -90,7 +91,21 @@ fun AppContent() {
             onAuthSuccess = { currentUser = Firebase.auth.currentUser }
         )
     } else {
-        val viewModel: MessViewModel = viewModel()
+        val isGoogleUser = currentUser?.providerData?.any { it.providerId == "google.com" } == true
+        val isVerified = currentUser?.isEmailVerified == true || isGoogleUser
+
+        if (!isVerified) {
+            EmailVerificationScreen(
+                userEmail = currentUser?.email ?: "",
+                onVerified = {
+                    currentUser = Firebase.auth.currentUser
+                },
+                onSignOut = {
+                    currentUser = null
+                }
+            )
+        } else {
+            val viewModel: MessViewModel = viewModel()
         val activeMess by viewModel.activeMess.collectAsState()
         val messes by viewModel.userMesses.collectAsState()
         val isLoading by viewModel.isLoading.collectAsState()
@@ -141,6 +156,7 @@ fun AppContent() {
             )
         }
     }
+}
 }
 
 fun attemptAutoSignIn(

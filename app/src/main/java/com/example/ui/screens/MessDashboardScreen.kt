@@ -157,11 +157,22 @@ fun MessDashboardScreen(
     var assigningMemberRoom by remember { mutableStateOf<Room?>(null) }
     var showAdminDialog by remember { mutableStateOf(false) }
 
+    var showDailyMealEntryScreen by remember { mutableStateOf(false) }
+
     if (showAdminDashboard && isAdmin) {
         AdminDashboardScreen(
             viewModel = viewModel,
             mess = mess,
             onBack = { showAdminDashboard = false }
+        )
+        return
+    }
+
+    if (showDailyMealEntryScreen) {
+        DailyMealEntryScreen(
+            viewModel = viewModel,
+            mess = mess,
+            onNavigateBack = { showDailyMealEntryScreen = false }
         )
         return
     }
@@ -289,6 +300,14 @@ fun MessDashboardScreen(
                                 )
                             }
                             DropdownMenuItem(
+                                text = { Text("📝 দৈনিক মিল এন্ট্রি") },
+                                onClick = {
+                                    showTopMenu = false
+                                    showDailyMealEntryScreen = true
+                                },
+                                leadingIcon = { Icon(Icons.Default.Dining, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("মেস পরিবর্তন") },
                                 onClick = {
                                     showTopMenu = false
@@ -363,12 +382,9 @@ fun MessDashboardScreen(
             when (selectedTab) {
                 0 -> {
                     ExtendedFloatingActionButton(
-                        onClick = {
-                            editingMeal = null
-                            showRecordMealDialog = true
-                        },
+                        onClick = { showDailyMealEntryScreen = true },
                         icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                        text = { Text("মিল যোগ") },
+                        text = { Text("মিল এন্ট্রি") },
                         modifier = Modifier.testTag("fab_add_meal")
                     )
                 }
@@ -429,6 +445,7 @@ fun MessDashboardScreen(
                     meals = meals,
                     currentDate = currentDate,
                     onDateChanged = { viewModel.setDate(it) },
+                    onOpenMealEntryScreen = { showDailyMealEntryScreen = true },
                     onEditMeal = { meal ->
                         editingMeal = meal
                         showRecordMealDialog = true
@@ -683,6 +700,7 @@ private fun DailyMealsTab(
     meals: List<Meal>,
     currentDate: String,
     onDateChanged: (String) -> Unit,
+    onOpenMealEntryScreen: () -> Unit,
     onEditMeal: (Meal) -> Unit,
     onDeleteMeal: (String) -> Unit
 ) {
@@ -746,6 +764,22 @@ private fun DailyMealsTab(
                     }
                 }
             }
+        }
+
+        // Dedicated Daily Meal Entry Button
+        FilledTonalButton(
+            onClick = onOpenMealEntryScreen,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("open_meal_entry_screen_button"),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Icon(Icons.Default.Dining, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "📝 আজকের মিল এন্ট্রি করুন (Breakfast, Lunch, Dinner)",
+                fontWeight = FontWeight.Bold
+            )
         }
 
         Text(
