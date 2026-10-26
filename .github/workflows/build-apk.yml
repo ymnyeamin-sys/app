@@ -78,6 +78,20 @@ jobs:
           fi
           echo "Debug keystore is ready."
 
+      - name: Accept Android SDK licenses and install SDK platform
+        shell: bash
+        run: |
+          echo "=== Configuring Android SDK ==="
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          if [ -x "${SDKMANAGER}" ]; then
+            echo "Accepting Android SDK licenses..."
+            yes | "${SDKMANAGER}" --licenses >/dev/null 2>&1 || true
+            echo "Installing platform components..."
+            yes | "${SDKMANAGER}" --install "platforms;android-36.1" "platforms;android-36" >/dev/null 2>&1 || true
+          fi
+
       - name: Build debug APK
         shell: bash
         run: |
